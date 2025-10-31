@@ -129,7 +129,12 @@ const TreeView = () => {
 
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(auth.currentUser);
+  
+  //firebase auth
+  //const [user, setUser] = useState(auth.currentUser);
+
+  //supabase auth
+  const [user, setUser] = useState(null);
   const [allTags, setAllTags] = useState([]);
   const [selectedTags, setSelectedTags] = useState([]);
 
