@@ -19,7 +19,7 @@ import CustomNode from '../components/CustomNode';
 import PropertiesPane from '../components/PropertiesPane';
 import Auth from '../components/Auth';
 // import { saveTreeToFirestore, loadTreeFromFirestore, auth } from '../Services/firebase';
-import { saveTreeToSupabase, loadTreeFromSupabase, onAuthChange } from '../Services/supabase';
+import { saveTreeToSupabase, loadTreeFromSupabase, onAuthChange,supabase  } from '../Services/supabase';
 import { useNavigate, useParams } from 'react-router-dom';
 
 const nodeTypes = { customNode: CustomNode };
@@ -631,6 +631,37 @@ const TreeView = () => {
       </div>
     );
   }
+
+    const HomePage = () => {
+  const [trees, setTrees] = useState([]);
+
+  useEffect(() => {
+    const fetchTrees = async () => {
+      const { data, error } = await supabase
+        .from('family_trees')
+        .select('tree_id');  // Adjust your column name holding family name
+      
+      if (error) {
+        console.error('Error fetching trees:', error);
+      } else {
+        setTrees(data);
+      }
+    };
+
+    fetchTrees();
+  }, []);
+
+  return (
+    <div>
+      <h1>Family Trees</h1>
+      <ul>
+        {trees.map(tree => (
+          <li key={tree.tree_id}>{tree.tree_id}</li> // Or whatever your family name field is
+        ))}
+      </ul>
+    </div>
+  );
+};
 
   return (
     <ReactFlowProvider>
