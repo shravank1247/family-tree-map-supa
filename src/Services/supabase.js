@@ -58,7 +58,7 @@ export const signInWithGoogle = async () => {
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
-                redirectTo: window.location.origin + '/family-tree-map-supa/' // Redirect back to the app's origin
+                redirectTo: window.location.href //+ '/family-tree-map-supa/' // Redirect back to the app's origin
             },
         });
 
@@ -225,7 +225,7 @@ export const deleteTree = async (treeId) => {
 
     try {
         const { error } = await supabase
-            .from(TREES_TABLE)
+            .from(family_trees)
             .delete()
             .eq('user_id', user.id)
             .eq('tree_id', treeId);

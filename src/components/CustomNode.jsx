@@ -1,68 +1,99 @@
+// src/components/CustomNode.jsx
+
 import React, { useState } from 'react';
 import { Handle, Position } from 'reactflow';
 
-const MAX_BASE64_SIZE = 948576; // ~948KB, fits under 1MB Firestore limit
+// Assuming max Base64 size to fit comfortably within Supabase JSONB column limits (typically 1MB-4MB limit for the entire row)
+const MAX_BASE64_SIZE = 948576; // ~948KB, fits under 1MB
 
 const CustomNode = ({ id, data, selected, isConnectable }) => {
   const [editMode, setEditMode] = useState(false);
-  const [name, setName] = useState(data.label);
-  const [image, setImage] = useState(data.image);
+  // Ensure we use the latest data values
+  const [name, setName] = useState(data.label || '');
+  const [image, setImage] = useState(data.image || '');
 
   // Image Upload
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
+    // Check file size before processing to Base64
+    if (file.size > MAX_BASE64_SIZE) {
+      window.alert('Image too large! Please use an image under 948KB.');
+      return;
+    }
+
     const reader = new FileReader();
-    reader.onload = () => setImage(reader.result);
+    reader.onload = () => {
+      // Set the Base64 string directly
+      setImage(reader.result); 
+    };
     reader.readAsDataURL(file);
   };
 
   // Save Handler
   const handleSave = () => {
+    // Note: No need for a size check here as it's done during upload, but keeping the alert for safety.
     if (image && image.length > MAX_BASE64_SIZE) {
-      window.alert('Image too large! Please use a smaller image.');
+      window.alert('Image too large! Cannot save.');
       return;
     }
+
+    // Call the provided update function with new data
     data.onUpdate(id, {
       label: name,
-      image,
+      image, // Save the Base64 string
     });
     setEditMode(false);
   };
 
   // Filtering Logic
-  const isFiltered = (data.selectedTags &&
+  const isFiltered = data.selectedTags &&
     data.selectedTags.length > 0 &&
-    !data.selectedTags.some((tag) => data.tags.includes(tag)));
+    data.tags &&
+    !data.selectedTags.some((tag) => data.tags.includes(tag));
+  
   if (isFiltered) return null;
 
-  // Node UI
+  // Level-based color for the border/theme
+  const level = data.level || 0;
+  const colors = ['border-purple-500', 'border-blue-500', 'border-green-500', 'border-yellow-500', 'border-red-500'];
+  const nodeColor = colors[level % colors.length];
+
   return (
     <div
       className={`bg-white border-2 rounded shadow-xl w-[180px] h-[140px] flex flex-col items-center justify-between relative transition-all duration-200
-        ${selected ? 'border-indigo-500 scale-102' : 'border-gray-200'}
+        ${selected ? 'ring-2 ring-green-50' : 'border-green-200'}
         ${data.collapsed ? 'opacity-70' : ''}`}
       onContextMenu={(e) => {
         e.preventDefault();
         setEditMode(true);
       }}
     >
+      {/* Image rendering */}
+      {image && (
+        <img
+          src={image}
+          alt="Family member"
+          style={{ width: '100%', height: '70%', borderRadius: '8px' }}
+        />
+      )}
+
       {/* Parent/Spouse Handle */}
       <Handle type="target" position={Position.Top} isConnectable={isConnectable} />
 
-      {/* Image, blank if missing */}
+      {/* Image preview area (kept for backward compatibility) */}
       <div className="w-full h-[80px] bg-gray-200 flex items-center justify-center rounded-t">
-        {image ? (
-          <img src={image} alt="avatar" className="w-full h-[80px] object-cover rounded-t" />
-        ) : (
-          <div className="w-full h-[80px]"></div>
-        )}
+        {!image && <div className="w-full h-[80px]"></div>}
       </div>
 
       {/* Node Content */}
       <div className="w-full text-center py-1 px-1 flex flex-col justify-center flex-grow">
         {/* Name: larger font */}
-        <div className="text-base font-bold truncate text-gray-800 leading-tight">{name}</div>
+        <div className="text-base font-bold truncate text-gray-800 leading-tight">
+		{name}
+          {data.familyName && <span> {data.familyName}</span>}
+        </div>
 
         {/* DOB/Anniversary: extra small font, lighter color. */}
         <div className="text-[0.65rem] text-gray-600 leading-snug">
@@ -101,7 +132,7 @@ const CustomNode = ({ id, data, selected, isConnectable }) => {
             className="w-full mb-1 border p-1 text-sm rounded focus:ring-indigo-500 focus:border-indigo-500"
             placeholder="Full Name"
           />
-          {/* Image Upload */}
+         {/* Image Upload */}
           <label className="text-xs font-medium text-gray-500">Image</label>
           <input type="file" onChange={handleImageUpload} className="mb-2 w-full text-xs" />
           {/* Buttons */}

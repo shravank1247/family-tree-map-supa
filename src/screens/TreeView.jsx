@@ -22,6 +22,14 @@ import Auth from '../components/Auth';
 import { saveTreeToSupabase, loadTreeFromSupabase, onAuthChange,supabase  } from '../Services/supabase';
 import { useNavigate, useParams } from 'react-router-dom';
 
+
+// --- COLORING CONSTANTS ---
+const LEVEL_COLORS = ['#9333ea', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+const getColorForLevel = (level) => {
+    return LEVEL_COLORS[level % LEVEL_COLORS.length];
+};
+
+
 const nodeTypes = { customNode: CustomNode };
 
 // Dagre layout configuration
@@ -166,6 +174,16 @@ const TreeView = () => {
 
   const selectedNode = useMemo(() => nodes.find(n => n.id === selectedNodeId), [nodes, selectedNodeId]);
 
+  // Refs for accessing latest state in callbacks
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  useEffect(() => {
+    nodesRef.current = nodes;
+    edgesRef.current = edges;
+  }, [nodes, edges]);
+
+  
+
   // Clean and save only updated nodes with throttling
   const takeSnapshot = useCallback((changedNodes, currentEdges) => {
     setUpdatedNodesMap(prev => {
@@ -190,14 +208,15 @@ const TreeView = () => {
           ...(n.positionAbsolute && { positionAbsolute: n.positionAbsolute }),
           data: getCleanNodeData(n.data),
         }));
-        const cleanEdges = currentEdges.map(e => ({
+        const cleanEdges = edges.map(e => ({
           id: e.id,
           source: e.source,
           target: e.target,
           type: e.type,
-          ...(e.style && { style: e.style }),
-          ...(e.markerEnd && { markerEnd: e.markerEnd }),
+          style: e.style || {},            // default to empty object
+          markerEnd: e.markerEnd || null,  // default to null instead of undefined
         }));
+
 
         // //firebase auth
         // await saveTreeToFirestore(cleanNodes, cleanEdges, treeId);
@@ -217,6 +236,29 @@ const TreeView = () => {
     }, 500);
   }, [updatedNodesMap, saving, treeId]);
 
+  const saveData = useCallback(
+    async (currentNodes, currentEdges) => {
+      // ⚠️ CRITICAL FIX: DO NOT SAVE IF THE NODES ARRAY IS EMPTY
+      // if (!currentNodes || currentNodes.length === 0) {
+      //   console.warn('Save aborted: Nodes array is empty.');
+      //   return;
+      // }
+
+      const cleanNodes = currentNodes.map(getCleanNodeData);
+      const cleanEdges = currentEdges.map(getCleanEdgeData);
+      
+      try {
+        // setSaving(true);
+        // await saveTreeToSupabase(treeId, { nodes: cleanNodes, edges: cleanEdges });
+        // setSaving(false);
+        // ... (rest of the save logic)
+      } catch (e) {
+        // ... (rest of the save logic)
+      }
+    },
+    [treeId, setSaving]
+  );
+    
   // onNodesChange tracks only changed nodes and triggers takeSnapshot
   const onNodesChange = useCallback((changes) => {
     onNodesChangeReactFlow(changes);
@@ -228,12 +270,12 @@ const TreeView = () => {
         return { ...node, positionAbsolute: c.position };
       })
       .filter(Boolean);
-    if (changedNodes.length > 0) {
-      takeSnapshot(changedNodes, edges);
-    }
+    // if (changedNodes.length > 0) {
+    //   takeSnapshot(changedNodes, edges);
+    // }
   }, [onNodesChangeReactFlow, takeSnapshot, nodes, edges]);
 
-  const extractAllTags = useCallback((currentNodes) => {
+   const extractAllTags = useCallback((currentNodes) => {
     const tags = new Set();
     currentNodes.forEach(node => {
       if (node.data.tags) {
@@ -261,6 +303,7 @@ const TreeView = () => {
       data: {
         ...getCleanNodeData(node.data),
         ...node.data,
+        onUpdate: (id, newData) => updateNodeData(id, newData),
         level: levels[node.id] || 0,
         onUpdate: updateNodeData,
         onDelete: deleteNode,
@@ -375,7 +418,7 @@ const TreeView = () => {
       data: {
         label: `${treeId} Family Root`,
         familyName: treeId,
-        dob: '', anniversary: '', tags: 'Root, Living', notes: 'Start building your tree here', image: '', collapsed: false, level: 0,
+        dob: '', anniversary: '', tags: '', notes: '', image: '', collapsed: false, level: 0,
       },
       position: { x: 250, y: 50 },
     };
@@ -388,7 +431,7 @@ const TreeView = () => {
         const updatedNodes = nds.map((node) =>
           node.id === nodeId ? { ...node, data: { ...node.data, ...newData } } : node
         );
-        applyLayoutAndLevels(updatedNodes, edges, false, false);
+        // applyLayoutAndLevels(updatedNodes, edges, false, false);
         return updatedNodes;
       });
     },
@@ -466,7 +509,11 @@ const TreeView = () => {
         familyName: selectedNode.data.familyName,
         dob: '', anniversary: '', tags: '', notes: '', image: '', collapsed: false, level: 0,
       },
-      position: { x: 0, y: 0 }, // will be recalculated by layout below
+      // IMPORTANT: Set initial position relative to the parent, but Dagre will overwrite this if runLayout is true
+      position: { 
+        x: selectedNode.position.x, 
+        y: selectedNode.position.y + 200 // Initial vertical offset for a child
+      }, 
     };
 
     let newEdges = [...edges];
@@ -477,6 +524,12 @@ const TreeView = () => {
       const spouseEdge = edges.find((e) => e.type === 'spouse' && (e.source === selectedNodeId || e.target === selectedNodeId));
       const parent1Id = selectedNodeId;
       const parent2Id = spouseEdge ? (spouseEdge.source === selectedNodeId ? spouseEdge.target : spouseEdge.source) : null;
+
+      // Position child  below to selected node
+      newNode.positionAbsolute = {
+        x: selectedNode.position.x ,
+        y: selectedNode.position.y + nodeWidth + 50,
+      };
 
       newEdges.push({ id: `e${parent1Id}-${newNodeId}`, source: parent1Id, target: newNodeId, type: 'parent_child' });
       if (parent2Id) {
@@ -520,9 +573,38 @@ const TreeView = () => {
 
 
   const handleManualSave = async () => {
-    takeSnapshot(nodes, edges); // Debounced internally, saves only updated nodes
-    alert('✅ Tree saved successfully!');
-  };
+  try {
+    setSaving(true);
+
+    const cleanNodes = nodes.map(n => ({
+      id: n.id,
+      type: n.type,
+      position: n.position,
+      positionAbsolute: n.positionAbsolute || null,
+      data: getCleanNodeData(n.data)
+    }));
+
+    const cleanEdges = edges.map(e => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      type: e.type,
+      style: e.style || null,
+      markerEnd: e.markerEnd || null
+    }));
+
+    // Use upsert to preserve existing data and avoid delete conflicts
+    await saveTreeToSupabase(treeId, { nodes: cleanNodes, edges: cleanEdges }, { upsert: true });
+
+    alert('✅ Tree saved manually!');
+  } catch (error) {
+    console.error('Manual save failed:', error);
+    alert('❌ Error saving tree. Check console.');
+  } finally {
+    setSaving(false);
+  }
+};
+
 
   const handleTagToggle = (tag) => {
     if (tag === '') {
@@ -661,6 +743,51 @@ const TreeView = () => {
       </ul>
     </div>
   );
+};
+
+const uploadImageToSupabase = async (file) => {
+  if (!file) return null;
+
+  //This uploads the file and saves the image URL in the node data.
+  <input 
+  type="file" 
+  accept="image/*" 
+  onChange={async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const imageUrl = await uploadImageToSupabase(file);
+    if (imageUrl) {
+      updateNodeData(selectedNodeId, { image: imageUrl });
+    }
+  }}
+/>
+
+  // Create a unique filepath, e.g., 'family-tree-pics/userid-timestamp-filename'
+  const filePath = `family-tree-pics/${user?.id || 'anon'}-${Date.now()}-${file.name}`;
+
+  try {
+    // Convert file to blob directly if file input type=file provides File object
+    const { data, error } = await supabase.storage
+      .from('family-tree-pics') // your bucket name
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type,
+      });
+
+    if (error) throw error;
+
+    // Get public URL for access
+    const { data: publicUrlData } = supabase.storage
+      .from('family-tree-pics')
+      .getPublicUrl(filePath);
+
+    return publicUrlData.publicUrl;
+  } catch (error) {
+    console.error("Image upload failed:", error);
+    return null;
+  }
 };
 
   return (
@@ -817,7 +944,8 @@ const TreeView = () => {
             <button
               onClick={handleManualSave}
               className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 transition-colors"
-              title="Manually save to Firestore (Auto-save is also active)"
+              title="Save manually (auto-save is disabled)"
+
             >
               Save Now
             </button>
@@ -850,8 +978,10 @@ const TreeView = () => {
               <MiniMap
                 nodeColor={(node) => {
                   const level = node.data.level || 0;
-                  const colors = ['#9333ea', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
-                  return colors[level % colors.length];
+                  // const colors = ['#9333ea', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+                  // return colors[level % colors.length];
+
+                  return getColorForLevel(level);
                 }}
                 className="bg-white shadow-lg rounded-lg"
               />
